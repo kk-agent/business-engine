@@ -3,9 +3,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { VideoSource, IngestResponse } from '../../../lib/types';
 import { fetchVideoInfo, extractVideoId } from '../../../lib/youtube-service';
 import { summarizeTranscript } from '../../../lib/claude-client';
+import { consumeIngest, paywallResponse } from '@/lib/usage';
 
 export async function POST(request: NextRequest): Promise<NextResponse<IngestResponse>> {
   try {
+    const quota = await consumeIngest(request);
+    if (!quota.allowed) {
+      return NextResponse.json(paywallResponse(quota.usage), { status: 402 });
+    }
+
     const body = await request.json();
     const { youtubeUrl } = body;
 

@@ -2,7 +2,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateMarketingContent } from '../../../lib/claude-client';
 import { knowledgeGraph } from '../../../lib/knowledge-graph';
+import { MarketingGenerator } from '../../../lib/marketing-generator';
 import { MarketingResponse, Platform, MarketingType, MarketingAsset } from '../../../lib/types';
+import { isProTier } from '@/lib/usage';
 
 const validPlatforms: Platform[] = ['twitter', 'linkedin', 'instagram', 'youtube', 'blog', 'email'];
 const validTypes: MarketingType[] = ['post', 'thread', 'carousel', 'video_script', 'article', 'newsletter'];
@@ -19,8 +21,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<Marketing
       );
     }
 
-    // Validate platforms
-    const requestedPlatforms: Platform[] = platforms || ['twitter', 'linkedin'];
+    const pro = isProTier(request);
+    const requestedPlatforms: Platform[] = pro
+      ? (platforms || ['twitter', 'linkedin'])
+      : ['twitter'];
     const invalidPlatforms = requestedPlatforms.filter(p => !validPlatforms.includes(p));
     if (invalidPlatforms.length > 0) {
       return NextResponse.json(
@@ -30,7 +34,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Marketing
     }
 
     // Validate types
-    const requestedTypes: MarketingType[] = types || ['post'];
+    const requestedTypes: MarketingType[] = pro ? (types || ['post']) : ['post'];
     const invalidTypes = requestedTypes.filter(t => !validTypes.includes(t));
     if (invalidTypes.length > 0) {
       return NextResponse.json(
@@ -50,37 +54,48 @@ export async function POST(request: NextRequest): Promise<NextResponse<Marketing
 
     console.log(`[Marketing] Generating content for ${requestedPlatforms.length} platforms`);
 
-    // Generate marketing assets using Claude
     const assets: MarketingAsset[] = [];
 
-    for (const platform of requestedPlatforms) {
-      for (const contentType of requestedTypes) {
-        console.log(`[Marketing] Generating ${contentType} for ${platform} with Claude...`);
-
-        const skillsForPrompt = blueprint.skills.slice(0, 5).map(s => ({
-          name: s.name,
-          description: s.description,
-        }));
-
-        const content = await generateMarketingContent(
-          platform,
-          contentType,
-          blueprint.name,
-          skillsForPrompt,
-          blueprint.videoSource?.summary || []
-        );
-
+    if (pro) {
+      for (const platform of requestedPlatforms) {
+        for (const contentType of requestedTypes) {
+          const skillsForPrompt = blueprint.skills.slice(0, 5).map(s => ({
+            name: s.name,
+            description: s.description,
+          }));
+          const content = await generateMarketingContent(
+            platform,
+            contentType,
+            blueprint.name,
+            skillsForPrompt,
+            blueprint.videoSource?.summary || [],
+          );
+          assets.push({
+            id: `marketing_${Date.now()}_${platform}_${contentType}`,
+            platform,
+            type: contentType,
+            content,
+            hashtags: extractHashtags(content),
+            suggestedPostTime: getSuggestedPostTime(platform),
+            generatedAt: new Date().toISOString(),
+          });
+        }
+      }
+    } else {
+      const generator = new MarketingGenerator();
+      const generated = await generator.generateAssets(blueprint, requestedPlatforms, requestedTypes);
+      for (const asset of generated) {
+        const lines = asset.content.split('\n');
+        const preview =
+          lines.length > 12
+            ? `${lines.slice(0, 12).join('\n')}\n\n— Upgrade to Pro for full marketing pack`
+            : asset.content;
         assets.push({
-          id: `marketing_${Date.now()}_${platform}_${contentType}`,
-          platform,
-          type: contentType,
-          content,
-          hashtags: extractHashtags(content),
-          suggestedPostTime: getSuggestedPostTime(platform),
-          generatedAt: new Date().toISOString(),
+          ...asset,
+          content: preview,
+          hashtags: asset.hashtags || extractHashtags(preview),
+          suggestedPostTime: getSuggestedPostTime(asset.platform),
         });
-
-        console.log(`[Marketing] Generated ${platform} ${contentType} (${content.length} chars)`);
       }
     }
 

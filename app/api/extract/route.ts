@@ -2,6 +2,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractSkillsFromSummary } from '../../../lib/claude-client';
 import { ExtractResponse, Skill } from '../../../lib/types';
+import { isProTier } from '@/lib/usage';
+
+function heuristicSkills(summary: string[]): Skill[] {
+  const batch = Date.now();
+  return summary.slice(0, 8).map((point, index) => ({
+    id: `skill_${batch}_${index}`,
+    name: point.length > 48 ? `${point.slice(0, 45)}…` : point,
+    description: point,
+    type: 'script_execution' as const,
+    status: 'pending' as const,
+    parameters: [],
+    dependsOn: index > 0 ? [`skill_${batch}_${index - 1}`] : [],
+    tags: ['starter', 'template'],
+    estimatedDuration: 600,
+    createdAt: new Date().toISOString(),
+  }));
+}
 
 export async function POST(request: NextRequest): Promise<NextResponse<ExtractResponse>> {
   try {
@@ -15,14 +32,16 @@ export async function POST(request: NextRequest): Promise<NextResponse<ExtractRe
       );
     }
 
-    console.log(`[Extract] Processing ${summary.length} summary points with Claude...`);
+    const pro = isProTier(request);
+    console.log(`[Extract] Processing ${summary.length} points (${pro ? 'claude' : 'template'})...`);
 
-    // Use Claude to extract structured skills from summary points
+    if (!pro) {
+      return NextResponse.json({ success: true, skills: heuristicSkills(summary) });
+    }
+
     const extractedSkills = await extractSkillsFromSummary(summary, context || {});
+    console.log(`[Extract] Produced ${extractedSkills.length} skills`);
 
-    console.log(`[Extract] Claude extracted ${extractedSkills.length} skills`);
-
-    // Transform to match our Skill type
     const skills: Skill[] = extractedSkills.map((skill, index) => ({
       id: skill.id || `skill_${Date.now()}_${index}`,
       name: skill.name,

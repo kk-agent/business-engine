@@ -1,7 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+
+interface UsageInfo {
+  tier: 'free' | 'pro';
+  ingestsUsed: number;
+  ingestsLimit: number;
+  ingestsRemaining: number;
+}
 
 // Types
 interface VideoSource {
@@ -52,24 +59,52 @@ export default function StudioDashboard() {
   const [execution, setExecution] = useState<PipelineExecution | null>(null);
   const [loading, setLoading] = useState(false);
   const [blueprintName, setBlueprintName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<UsageInfo | null>(null);
 
-  // Ingest video
+  const refreshUsage = useCallback(async () => {
+    try {
+      const res = await fetch('/api/usage');
+      const data = await res.json();
+      if (data.ok) setUsage(data.usage);
+    } catch {
+      /* non-fatal */
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshUsage();
+  }, [refreshUsage]);
+
+  async function parseApi<T>(res: Response): Promise<T & { success?: boolean; error?: string; upgradeUrl?: string }> {
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = data.error || `Request failed (${res.status})`;
+      setError(res.status === 402 ? `${msg} → ${data.upgradeUrl || '/pricing'}` : msg);
+      throw new Error(msg);
+    }
+    setError(null);
+    return data;
+  }
+
   const handleIngest = async () => {
     if (!youtubeUrl) return;
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch('/api/ingest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ youtubeUrl }),
       });
-      const data = await res.json();
+      const data = await parseApi<{ success: boolean; videoSource: VideoSource }>(res);
       if (data.success) {
         setVideoSource(data.videoSource);
         setActiveTab('skills');
+        await refreshUsage();
       }
-    } catch (error) {
-      console.error('Ingest error:', error);
+    } catch {
+      /* error state set */
     }
     setLoading(false);
   };
@@ -208,6 +243,13 @@ export default function StudioDashboard() {
               </div>
             </div>
             <div className="flex items-center gap-4">
+              {usage && (
+                <span className="text-xs text-gray-400">
+                  {usage.tier === 'pro'
+                    ? 'Pro · unlimited'
+                    : `${usage.ingestsRemaining}/${usage.ingestsLimit} ingests left`}
+                </span>
+              )}
               <Link href="/pricing" className="text-sm text-gray-400 hover:text-white transition-colors">
                 Pricing
               </Link>
@@ -244,6 +286,12 @@ export default function StudioDashboard() {
           </div>
         </div>
       </nav>
+
+      {error && (
+        <div className="max-w-7xl mx-auto px-6 pt-4">
+          <div className="card border-red-500/40 bg-red-950/30 text-red-200 text-sm">{error}</div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8">
