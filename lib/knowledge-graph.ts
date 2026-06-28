@@ -7,8 +7,9 @@ import {
   VideoSource,
 } from './types';
 
-// In-memory storage (in production, use a database like Postgres, MongoDB, or a vector DB)
-let graphStore: KnowledgeGraph = {
+import { loadGraph, saveGraph } from './persistence';
+
+const emptyGraph = (): KnowledgeGraph => ({
   id: 'default_graph',
   blueprints: [],
   skills: [],
@@ -16,27 +17,39 @@ let graphStore: KnowledgeGraph = {
   tags: [],
   metadata: {},
   lastUpdated: new Date().toISOString(),
-};
+});
+
+let graphStore: KnowledgeGraph = emptyGraph();
+let graphLoaded = false;
 
 export class KnowledgeGraphManager {
   private generateId(): string {
     return `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   }
 
+  private async ensureLoaded(): Promise<void> {
+    if (graphLoaded) {
+      return;
+    }
+    graphStore = await loadGraph(emptyGraph());
+    graphLoaded = true;
+  }
+
   // Initialize or load the knowledge graph
   async initialize(): Promise<KnowledgeGraph> {
-    // In production, load from database
+    await this.ensureLoaded();
     return graphStore;
   }
 
   // Save the knowledge graph
   async save(): Promise<void> {
     graphStore.lastUpdated = new Date().toISOString();
-    // In production, persist to database
+    await saveGraph(graphStore);
   }
 
   // Store a blueprint
   async storeBlueprint(blueprint: Blueprint): Promise<void> {
+    await this.ensureLoaded();
     // Remove existing blueprint with same ID
     graphStore.blueprints = graphStore.blueprints.filter(b => b.id !== blueprint.id);
 
@@ -167,6 +180,7 @@ export class KnowledgeGraphManager {
 
   // Query blueprints
   async queryBlueprints(query: BlueprintQuery): Promise<Blueprint[]> {
+    await this.ensureLoaded();
     let results = [...graphStore.blueprints];
 
     // Filter by tags
@@ -386,6 +400,7 @@ export class KnowledgeGraphManager {
 
   // Get blueprint by ID
   async getBlueprintById(id: string): Promise<Blueprint | null> {
+    await this.ensureLoaded();
     return graphStore.blueprints.find(b => b.id === id) || null;
   }
 
