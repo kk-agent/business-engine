@@ -7,28 +7,34 @@ import { consumeIngest, paywallResponse } from '@/lib/usage';
 
 export async function POST(request: NextRequest): Promise<NextResponse<IngestResponse>> {
   try {
-    const quota = await consumeIngest(request);
-    if (!quota.allowed) {
-      return NextResponse.json(paywallResponse(quota.usage), { status: 402 });
-    }
-
     const body = await request.json();
     const { youtubeUrl } = body;
 
-    if (!youtubeUrl) {
+    if (!youtubeUrl || typeof youtubeUrl !== 'string') {
       return NextResponse.json(
         { success: false, error: 'YouTube URL is required' },
         { status: 400 }
       );
     }
 
-    // Extract video ID from URL
+    if (youtubeUrl.length > 2048) {
+      return NextResponse.json(
+        { success: false, error: 'YouTube URL is too long' },
+        { status: 400 }
+      );
+    }
+
     const videoId = extractVideoId(youtubeUrl);
     if (!videoId) {
       return NextResponse.json(
         { success: false, error: 'Invalid YouTube URL' },
         { status: 400 }
       );
+    }
+
+    const quota = await consumeIngest(request);
+    if (!quota.allowed) {
+      return NextResponse.json(paywallResponse(quota.usage), { status: 402 });
     }
 
     console.log(`[Ingest] Fetching video info for: ${videoId}`);

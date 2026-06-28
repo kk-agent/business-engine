@@ -4,7 +4,7 @@ import { generateArtifact } from '../../../lib/claude-client';
 import { knowledgeGraph } from '../../../lib/knowledge-graph';
 import { ArtifactGenerator } from '../../../lib/artifact-generator';
 import { ArtifactResponse, ArtifactType, Artifact } from '../../../lib/types';
-import { isProTier } from '@/lib/usage';
+import { isProTier } from '@/lib/auth';
 
 const PREVIEW_LINES = 20;
 

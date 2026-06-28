@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { isProTier } from '@/lib/auth';
 
 const FREE_INGEST_LIMIT = Number(process.env.FREE_INGEST_LIMIT || 5);
 const MONTH_KEY_PREFIX = 'be:usage:ingest:';
@@ -24,11 +25,18 @@ function secondsUntilMonthEnd(): number {
 }
 
 export function getClientKey(request: NextRequest): string {
+  const realIp = request.headers.get('x-real-ip');
+  if (realIp) {
+    return realIp.trim();
+  }
+
   const forwarded = request.headers.get('x-forwarded-for');
   if (forwarded) {
-    return forwarded.split(',')[0]?.trim() || 'unknown';
+    const parts = forwarded.split(',').map(part => part.trim()).filter(Boolean);
+    return parts[parts.length - 1] || 'unknown';
   }
-  return request.headers.get('x-real-ip') || 'unknown';
+
+  return 'unknown';
 }
 
 async function getStore(): Promise<UsageStore | null> {
@@ -62,9 +70,7 @@ export type UsageSnapshot = {
 };
 
 export async function getUsage(request: NextRequest): Promise<UsageSnapshot> {
-  const proKey = process.env.BUSINESS_ENGINE_PRO_KEY;
-  const license = request.headers.get('x-be-license');
-  const tier = proKey && license === proKey ? 'pro' : 'free';
+  const tier = isProTier(request) ? 'pro' : 'free';
 
   if (tier === 'pro') {
     return {
@@ -95,43 +101,52 @@ export async function getUsage(request: NextRequest): Promise<UsageSnapshot> {
   };
 }
 
+function buildFreeUsage(used: number): UsageSnapshot {
+  return {
+    tier: 'free',
+    ingestsUsed: used,
+    ingestsLimit: FREE_INGEST_LIMIT,
+    ingestsRemaining: Math.max(0, FREE_INGEST_LIMIT - used),
+  };
+}
+
 export async function consumeIngest(request: NextRequest): Promise<
   | { allowed: true; usage: UsageSnapshot }
   | { allowed: false; usage: UsageSnapshot; status: 402 }
 > {
-  const usage = await getUsage(request);
-
-  if (usage.tier === 'pro' || usage.ingestsRemaining > 0) {
-    if (usage.tier === 'free') {
-      const clientKey = getClientKey(request);
-      const redisKey = `${MONTH_KEY_PREFIX}${monthBucket()}:${clientKey}`;
-      const redis = await getStore();
-
-      if (redis) {
-        const count = await redis.incr(redisKey);
-        if (count === 1) {
-          await redis.set(redisKey, String(count), { ex: secondsUntilMonthEnd() });
-        }
-        usage.ingestsUsed = count;
-        usage.ingestsRemaining = Math.max(0, FREE_INGEST_LIMIT - count);
-      } else {
-        const next = (memoryUsage.get(redisKey) ?? 0) + 1;
-        memoryUsage.set(redisKey, next);
-        usage.ingestsUsed = next;
-        usage.ingestsRemaining = Math.max(0, FREE_INGEST_LIMIT - next);
-      }
-    }
-
-    return { allowed: true, usage };
+  if (isProTier(request)) {
+    return {
+      allowed: true,
+      usage: {
+        tier: 'pro',
+        ingestsUsed: 0,
+        ingestsLimit: Number.MAX_SAFE_INTEGER,
+        ingestsRemaining: Number.MAX_SAFE_INTEGER,
+      },
+    };
   }
 
-  return { allowed: false, usage, status: 402 };
-}
+  const clientKey = getClientKey(request);
+  const redisKey = `${MONTH_KEY_PREFIX}${monthBucket()}:${clientKey}`;
+  const redis = await getStore();
 
-export function isProTier(request: NextRequest): boolean {
-  const proKey = process.env.BUSINESS_ENGINE_PRO_KEY;
-  const license = request.headers.get('x-be-license');
-  return Boolean(proKey && license === proKey);
+  let used = 0;
+  if (redis) {
+    used = await redis.incr(redisKey);
+    if (used === 1) {
+      await redis.set(redisKey, String(used), { ex: secondsUntilMonthEnd() });
+    }
+  } else {
+    used = (memoryUsage.get(redisKey) ?? 0) + 1;
+    memoryUsage.set(redisKey, used);
+  }
+
+  const usage = buildFreeUsage(used);
+  if (used > FREE_INGEST_LIMIT) {
+    return { allowed: false, usage, status: 402 };
+  }
+
+  return { allowed: true, usage };
 }
 
 export function paywallResponse(usage: UsageSnapshot) {

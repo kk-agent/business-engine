@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { extractSkillsFromSummary } from '../../../lib/claude-client';
 import { ExtractResponse, Skill } from '../../../lib/types';
-import { isProTier } from '@/lib/usage';
+import { isProTier } from '@/lib/auth';
 
 function heuristicSkills(summary: string[]): Skill[] {
   const batch = Date.now();

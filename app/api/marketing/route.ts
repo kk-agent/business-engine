@@ -4,7 +4,7 @@ import { generateMarketingContent } from '../../../lib/claude-client';
 import { knowledgeGraph } from '../../../lib/knowledge-graph';
 import { MarketingGenerator } from '../../../lib/marketing-generator';
 import { MarketingResponse, Platform, MarketingType, MarketingAsset } from '../../../lib/types';
-import { isProTier } from '@/lib/usage';
+import { isProTier } from '@/lib/auth';
 
 const validPlatforms: Platform[] = ['twitter', 'linkedin', 'instagram', 'youtube', 'blog', 'email'];
 const validTypes: MarketingType[] = ['post', 'thread', 'carousel', 'video_script', 'article', 'newsletter'];
