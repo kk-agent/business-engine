@@ -51,9 +51,22 @@ export default function LandingPage() {
             <Link href="/studio" className="btn btn-primary text-base px-8 py-3">
               Start free in Studio
             </Link>
+            <Link href="/studio?demo=1" className="btn btn-secondary text-base px-8 py-3">
+              Try demo flow
+            </Link>
             <Link href="/pricing" className="btn btn-secondary text-base px-8 py-3">
               View plans
             </Link>
+          </div>
+        </section>
+
+        <section className="max-w-6xl mx-auto px-6 py-12">
+          <h2 className="text-xl font-semibold mb-6">Example output</h2>
+          <div className="card font-mono text-sm text-gray-300 space-y-2">
+            <p className="text-emerald-400">▸ Ingest: &quot;How to deploy a Next.js app to Vercel&quot;</p>
+            <p>▸ Skills: configure-env · build-pipeline · deploy-preview · add-domain</p>
+            <p>▸ Artifacts: Dockerfile, GitHub Actions workflow, deploy.sh</p>
+            <p>▸ Marketing: LinkedIn launch post + X thread draft</p>
           </div>
         </section>
 

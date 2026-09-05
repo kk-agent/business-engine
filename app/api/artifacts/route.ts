@@ -2,7 +2,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateArtifact } from '../../../lib/claude-client';
 import { knowledgeGraph } from '../../../lib/knowledge-graph';
+import { ArtifactGenerator } from '../../../lib/artifact-generator';
 import { ArtifactResponse, ArtifactType, Artifact } from '../../../lib/types';
+import { isProTier } from '@/lib/auth';
+
+const PREVIEW_LINES = 20;
 
 const validArtifactTypes: ArtifactType[] = [
   'dockerfile',
@@ -28,8 +32,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<ArtifactR
       );
     }
 
-    // Validate artifact types
-    const types: ArtifactType[] = artifactTypes || ['dockerfile', 'docker_compose', 'github_actions'];
+    const pro = isProTier(request);
+    const types: ArtifactType[] = pro
+      ? (artifactTypes || ['dockerfile', 'docker_compose', 'github_actions'])
+      : ['dockerfile'];
     const invalidTypes = types.filter(t => !validArtifactTypes.includes(t));
     if (invalidTypes.length > 0) {
       return NextResponse.json(
@@ -49,33 +55,36 @@ export async function POST(request: NextRequest): Promise<NextResponse<ArtifactR
 
     console.log(`[Artifacts] Generating ${types.length} artifacts for blueprint: ${blueprint.name}`);
 
-    // Generate artifacts using Claude
     const artifacts: Artifact[] = [];
 
-    for (const artifactType of types) {
-      console.log(`[Artifacts] Generating ${artifactType} with Claude...`);
-
-      const skillsForPrompt = blueprint.skills.slice(0, 10).map(s => ({
-        name: s.name,
-        type: s.type,
-        description: s.description,
-      }));
-
-      const content = await generateArtifact(
-        artifactType,
-        blueprint.name,
-        skillsForPrompt
-      );
-
-      artifacts.push({
-        id: `artifact_${Date.now()}_${artifactType}`,
-        type: artifactType,
-        name: getArtifactName(artifactType),
-        content,
-        generatedAt: new Date().toISOString(),
-      });
-
-      console.log(`[Artifacts] Generated ${artifactType} (${content.length} chars)`);
+    if (pro) {
+      for (const artifactType of types) {
+        console.log(`[Artifacts] Generating ${artifactType} with Claude...`);
+        const skillsForPrompt = blueprint.skills.slice(0, 10).map(s => ({
+          name: s.name,
+          type: s.type,
+          description: s.description,
+        }));
+        const content = await generateArtifact(artifactType, blueprint.name, skillsForPrompt);
+        artifacts.push({
+          id: `artifact_${Date.now()}_${artifactType}`,
+          type: artifactType,
+          name: getArtifactName(artifactType),
+          content,
+          generatedAt: new Date().toISOString(),
+        });
+      }
+    } else {
+      const generator = new ArtifactGenerator();
+      const generated = await generator.generateArtifacts(blueprint, types);
+      for (const artifact of generated) {
+        const lines = artifact.content.split('\n');
+        const preview =
+          lines.length > PREVIEW_LINES
+            ? `${lines.slice(0, PREVIEW_LINES).join('\n')}\n# … Upgrade to Pro for full export (${lines.length} lines)`
+            : artifact.content;
+        artifacts.push({ ...artifact, content: preview });
+      }
     }
 
     // Update blueprint with generated artifacts

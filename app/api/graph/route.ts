@@ -1,5 +1,6 @@
 // API Route: Knowledge Graph Operations
 import { NextRequest, NextResponse } from 'next/server';
+import { hasPrivilegedAccess, unauthorizedMutationResponse } from '@/lib/auth';
 import { knowledgeGraph } from '../../../lib/knowledge-graph';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -108,6 +109,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  if (!hasPrivilegedAccess(request)) {
+    return unauthorizedMutationResponse();
+  }
+
   try {
     const body = await request.json();
     const { action } = body;
